@@ -13,12 +13,12 @@ export const createCheckoutSession = async (req, res) => {
 		let totalAmount = 0;
 
 		const lineItems = products.map((product) => {
-			const amount = Math.round(product.price * 100); // stripe wants u to send in the format of cents
+			const amount = Math.round(product.price * 100); 
 			totalAmount += amount * product.quantity;
 
 			return {
 				price_data: {
-					currency: "usd",
+					currency: "inr",
 					product_data: {
 						name: product.name,
 						images: [product.image],
