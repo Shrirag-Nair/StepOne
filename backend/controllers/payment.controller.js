@@ -1,8 +1,6 @@
 import Coupon from "../models/coupon.model.js";
 import Order from "../models/order.model.js";
 import { stripe } from "../lib/stripe.js";
-import User  from "../models/user.model.js";
-import { sendOrderEmail } from "../utils/mailer.js";
 
 export const createCheckoutSession = async (req, res) => {
 	try {
@@ -74,50 +72,52 @@ export const createCheckoutSession = async (req, res) => {
 		res.status(500).json({ message: "Error processing checkout", error: error.message });
 	}
 };
+
 export const checkoutSuccess = async (req, res) => {
-  try {
-    const { sessionId } = req.body;
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
+	try {
+		const { sessionId } = req.body;
+		const session = await stripe.checkout.sessions.retrieve(sessionId);
 
-    if (session.payment_status === "paid") {
-      if (session.metadata.couponCode) {
-        await Coupon.findOneAndUpdate(
-          { code: session.metadata.couponCode, userId: session.metadata.userId },
-          { isActive: false }
-        );
-      }
+		if (session.payment_status === "paid") {
+			if (session.metadata.couponCode) {
+				await Coupon.findOneAndUpdate(
+					{
+						code: session.metadata.couponCode,
+						userId: session.metadata.userId,
+					},
+					{
+						isActive: false,
+					}
+				);
+			}
 
-      const products = JSON.parse(session.metadata.products);
-      const newOrder = new Order({
-        user: session.metadata.userId,
-        products: products.map((product) => ({
-          product: product.id,
-          quantity: product.quantity,
-          price: product.price,
-        })),
-        totalAmount: session.amount_total / 100,
-        stripeSessionId: sessionId,
-      });
+			// create a new Order
+			const products = JSON.parse(session.metadata.products);
+			const newOrder = new Order({
+				user: session.metadata.userId,
+				products: products.map((product) => ({
+					product: product.id,
+					quantity: product.quantity,
+					price: product.price,
+				})),
+				totalAmount: session.amount_total / 100, // convert from cents to dollars,
+				stripeSessionId: sessionId,
+			});
 
-      await newOrder.save();
+			await newOrder.save();
 
-      // 🔑 find user email and send order mail
-      const user = await User.findById(session.metadata.userId);
-      if (user?.email) {
-        await sendOrderEmail(user.email, newOrder);
-      }
-
-      res.status(200).json({
-        success: true,
-        message: "Payment successful, order created, and confirmation email sent.",
-        orderId: newOrder._id,
-      });
-    }
-  } catch (error) {
-    console.error("Error processing successful checkout:", error);
-    res.status(500).json({ message: "Error processing successful checkout", error: error.message });
-  }
+			res.status(200).json({
+				success: true,
+				message: "Payment successful, order created, and coupon deactivated if used.",
+				orderId: newOrder._id,
+			});
+		}
+	} catch (error) {
+		console.error("Error processing successful checkout:", error);
+		res.status(500).json({ message: "Error processing successful checkout", error: error.message });
+	}
 };
+
 async function createStripeCoupon(discountPercentage) {
 	const coupon = await stripe.coupons.create({
 		percent_off: discountPercentage,
